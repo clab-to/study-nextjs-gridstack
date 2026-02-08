@@ -1,7 +1,9 @@
 "use client";
 
 import type { GridStack as GridStackType, GridStackWidget } from "gridstack";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const STORAGE_KEY = "dashboard-grid-layout";
 
 export default function DashboardGrid() {
 	const gridElementRef = useRef<HTMLDivElement | null>(null);
@@ -18,6 +20,34 @@ export default function DashboardGrid() {
 	);
 
 	const [status, setStatus] = useState<string>("not initialized");
+
+	const loadSavedLayout = useCallback((grid: GridStackType) => {
+		const saved = localStorage.getItem(STORAGE_KEY);
+		if (!saved) {
+			console.log("Load saved: 保存済みレイアウトが見つかりません");
+			return false;
+		}
+
+		try {
+			const layout = JSON.parse(saved) as GridStackWidget[];
+			grid.removeAll();
+			grid.load(layout);
+			console.log("Load saved: 保存済みレイアウトを読み込み");
+			return true;
+		} catch (error) {
+			console.log("Load saved: 保存済みレイアウトの読み込みに失敗", error);
+			return false;
+		}
+	}, []);
+
+	const loadDefaultLayout = useCallback(
+		(grid: GridStackType) => {
+			grid.removeAll();
+			grid.load(defaultLayout);
+			console.log("Load default: デフォルトレイアウトを読み込み");
+		},
+		[defaultLayout],
+	);
 
 	useEffect(() => {
 		let disposed = false;
@@ -42,13 +72,8 @@ export default function DashboardGrid() {
 			gridRef.current = grid;
 			console.log("useEffect: グリッド初期化完了");
 
-			const saved = localStorage.getItem("dashboard-grid-layout");
-			if (saved) {
-				grid.load(JSON.parse(saved));
-				console.log("useEffect: 保存済みレイアウトを読み込み");
-			} else {
-				grid.load(defaultLayout);
-				console.log("useEffect: デフォルトレイアウトを読み込み");
+			if (!loadSavedLayout(grid)) {
+				loadDefaultLayout(grid);
 			}
 
 			grid.on("added removed change", () => {
@@ -65,12 +90,14 @@ export default function DashboardGrid() {
 			gridRef.current = null;
 			console.log("useEffect: クリーンアップ（グリッド破棄）");
 		};
-	}, []);
+	}, [loadDefaultLayout, loadSavedLayout]);
 
 	const addWidget = () => {
 		const grid = gridRef.current;
 		if (!grid) {
-			console.log("Add widget: グリッドがまだ初期化されていないため無視されました");
+			console.log(
+				"Add widget: グリッドがまだ初期化されていないため無視されました",
+			);
 			return;
 		}
 
@@ -80,10 +107,12 @@ export default function DashboardGrid() {
 		}
 
 		try {
+			const widgetId = `widget-${Date.now()}`;
 			grid.addWidget({
+				id: widgetId,
 				w: 3,
 				h: 2,
-				content: `new-${Date.now()}`,
+				content: widgetId,
 			});
 			console.log("Add widget: ウィジェットを追加しました");
 			setStatus("added widget");
@@ -106,9 +135,24 @@ export default function DashboardGrid() {
 		}
 
 		const layout = grid.save();
-		localStorage.setItem("dashboard-grid-layout", JSON.stringify(layout));
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
 		console.log("Save: レイアウトを保存しました");
 		setStatus("saved");
+	};
+
+	const loadLayout = () => {
+		const grid = gridRef.current;
+		if (!grid) {
+			console.log("Load: グリッドがまだ初期化されていないため無視されました");
+			return;
+		}
+
+		if (loadSavedLayout(grid)) {
+			setStatus("loaded");
+		} else {
+			loadDefaultLayout(grid);
+			setStatus("loaded default");
+		}
 	};
 
 	const resetLayout = () => {
@@ -118,14 +162,17 @@ export default function DashboardGrid() {
 			return;
 		}
 
-		localStorage.removeItem("gridstack:layout");
-		grid.load(defaultLayout);
+		localStorage.removeItem(STORAGE_KEY);
+		loadDefaultLayout(grid);
 		console.log("Reset: レイアウトをリセットしました");
 		setStatus("reset");
 	};
 
 	const logGridElement = () => {
-		console.log("Log grid element: gridElementRef.current =", gridElementRef.current);
+		console.log(
+			"Log grid element: gridElementRef.current =",
+			gridElementRef.current,
+		);
 	};
 
 	return (
@@ -140,6 +187,7 @@ export default function DashboardGrid() {
 			>
 				<button onClick={addWidget}>Add widget</button>
 				<button onClick={saveLayout}>Save</button>
+				<button onClick={loadLayout}>Load</button>
 				<button onClick={resetLayout}>Reset</button>
 				<button onClick={logGridElement}>Log grid element</button>
 				<span style={{ opacity: 0.7 }}>status: {status}</span>
