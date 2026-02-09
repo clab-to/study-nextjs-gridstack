@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# study-nextjs-gridstack
 
-## Getting Started
+## 概要
+Next.js と GridStack.js を組み合わせたダッシュボードUIの練習・検証用リポジトリです。ドラッグ&ドロップでウィジェットを並べ替えたり、レイアウトを保存・復元する最小構成を試せます。
 
-First, run the development server:
+## 事前準備 / インストール
+Node.js が必要です。依存関係は pnpm を前提にしています。
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 起動
+開発サーバーを立ち上げて動作確認します。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+起動後、`http://localhost:3000` を開いて確認します。
 
-## Learn More
+## 構成
+- `app/page.tsx`
+  - 画面のエントリーポイント。GridStack の画面を読み込みます。
+- `components/dashboard-grid.tsx`
+  - GridStack の初期化と操作（追加・保存・読込・リセット）を担当します。
+  - LocalStorage への保存キーは `dashboard-grid-layout` です。
+- `app/globals.css`
+  - GridStack のカード表示スタイルを定義しています。
 
-To learn more about Next.js, take a look at the following resources:
+## できること / 検証ポイント
+- **ドラッグ&リサイズ**: グリッド上のウィジェットを移動・サイズ変更できます。
+- **追加**: 「Add widget」で新しいウィジェットを追加できます。
+- **保存 / 読み込み**: 「Save」「Load」で現在のレイアウトを LocalStorage に保存・復元できます。
+- **リセット**: 「Reset」でデフォルトレイアウトに戻せます。
+- **初期化ログ**: コンソールログで GridStack 初期化や状態遷移を確認できます。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
