@@ -1,103 +1,107 @@
 "use client";
 
-import type { GridStack as GridStackType, GridStackWidget } from "gridstack";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+	GridStackOptions,
+	GridStack as GridStackType,
+	GridStackWidget,
+} from "gridstack";
+import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "dashboard-grid-layout";
+const ROOT_STYLE: CSSProperties = { padding: 16 };
+const TOOLBAR_STYLE: CSSProperties = {
+	display: "flex",
+	gap: 8,
+	alignItems: "center",
+	marginBottom: 12,
+};
+const STATUS_STYLE: CSSProperties = { opacity: 0.7 };
+const GRID_INIT_OPTIONS = { margin: 8, cellHeight: 80, float: true };
+const DEFAULT_LAYOUT: GridStackWidget[] = [
+	{ id: "a", x: 0, y: 0, w: 4, h: 2, content: "A" },
+	{ id: "b", x: 4, y: 0, w: 4, h: 2, content: "B" },
+	{ id: "c", x: 8, y: 0, w: 4, h: 2, content: "C" },
+];
 
-export default function DashboardGrid() {
-	const gridElementRef = useRef<HTMLDivElement | null>(null);
-	const gridRef = useRef<GridStackType | null>(null);
+type StatusListener = (status: string) => void;
 
-	// グリッドの初期化
-	const defaultLayout: GridStackWidget[] = useMemo(
-		() => [
-			{ id: "a", x: 0, y: 0, w: 4, h: 2, content: "A" },
-			{ id: "b", x: 4, y: 0, w: 4, h: 2, content: "B" },
-			{ id: "c", x: 8, y: 0, w: 4, h: 2, content: "C" },
-		],
-		[],
-	);
+function isGridStackWidgetArray(
+	layout: GridStackWidget[] | GridStackOptions,
+): layout is GridStackWidget[] {
+	return Array.isArray(layout);
+}
 
-	const [status, setStatus] = useState<string>("not initialized");
+class GridLayoutStorage {
+	constructor(private readonly key: string) {}
 
-	const loadSavedLayout = useCallback((grid: GridStackType) => {
-		const saved = localStorage.getItem(STORAGE_KEY);
+	load(): GridStackWidget[] | null {
+		const saved = localStorage.getItem(this.key);
 		if (!saved) {
 			console.log("Load saved: 保存済みレイアウトが見つかりません");
-			return false;
+			return null;
 		}
 
 		try {
-			const layout = JSON.parse(saved) as GridStackWidget[];
-			grid.removeAll();
-			grid.load(layout);
-			console.log("Load saved: 保存済みレイアウトを読み込み");
-			return true;
+			const parsed = JSON.parse(saved);
+			if (!Array.isArray(parsed)) {
+				console.log("Load saved: 保存済みレイアウトの形式が不正です");
+				return null;
+			}
+			return parsed as GridStackWidget[];
 		} catch (error) {
 			console.log("Load saved: 保存済みレイアウトの読み込みに失敗", error);
-			return false;
+			return null;
 		}
-	}, []);
+	}
 
-	const loadDefaultLayout = useCallback(
-		(grid: GridStackType) => {
-			grid.removeAll();
-			grid.load(defaultLayout);
-			console.log("Load default: デフォルトレイアウトを読み込み");
-		},
-		[defaultLayout],
-	);
+	save(layout: GridStackWidget[]) {
+		localStorage.setItem(this.key, JSON.stringify(layout));
+		console.log("Save: レイアウトを保存しました");
+	}
 
-	useEffect(() => {
-		let disposed = false;
-		console.log("useEffect: グリッド初期化開始");
+	clear() {
+		localStorage.removeItem(this.key);
+	}
+}
 
-		void (async () => {
-			if (!gridElementRef.current) {
-				console.log("useEffect: gridElementRef.current がまだないためスキップ");
-				return;
-			}
+class GridController {
+	private grid: GridStackType | null = null;
 
-			const { GridStack } = await import("gridstack");
-			if (disposed) {
-				console.log("useEffect: クリーンアップ済みのため初期化中止");
-				return;
-			}
+	constructor(
+		private readonly storage: GridLayoutStorage,
+		private readonly defaultLayout: GridStackWidget[],
+		private readonly onStatusChange: StatusListener,
+	) {}
 
-			const grid = GridStack.init(
-				{ margin: 8, cellHeight: 80, float: true },
-				gridElementRef.current,
-			);
-			gridRef.current = grid;
-			console.log("useEffect: グリッド初期化完了");
+	attach(grid: GridStackType) {
+		this.grid = grid;
 
-			if (!loadSavedLayout(grid)) {
-				loadDefaultLayout(grid);
-			}
+		if (!this.loadSavedLayout()) {
+			this.loadDefaultLayout();
+		}
 
-			grid.on("added removed change", () => {
-				setStatus("changed");
-			});
+		grid.on("added removed change", () => {
+			this.onStatusChange("changed");
+		});
 
-			setStatus("ready");
-			console.log("useEffect: 準備完了");
-		})();
+		this.onStatusChange("ready");
+	}
 
-		return () => {
-			disposed = true;
-			gridRef.current?.destroy(false);
-			gridRef.current = null;
-			console.log("useEffect: クリーンアップ（グリッド破棄）");
-		};
-	}, [loadDefaultLayout, loadSavedLayout]);
-
-	const addWidget = () => {
-		const grid = gridRef.current;
+	destroy() {
+		const grid = this.grid;
 		if (!grid) {
-			console.log(
-				"Add widget: グリッドがまだ初期化されていないため無視されました",
-			);
+			return;
+		}
+
+		grid.off("added removed change");
+		grid.destroy(false);
+		this.grid = null;
+	}
+
+	addWidget() {
+		const grid = this.getGridOrLog("Add widget");
+		if (!grid) {
 			return;
 		}
 
@@ -115,85 +119,182 @@ export default function DashboardGrid() {
 				content: widgetId,
 			});
 			console.log("Add widget: ウィジェットを追加しました");
-			setStatus("added widget");
+			this.onStatusChange("added widget");
 		} finally {
 			if (wasAnimationEnabled) {
 				window.requestAnimationFrame(() => {
-					if (gridRef.current === grid) {
+					if (this.grid === grid) {
 						grid.setAnimation(true);
 					}
 				});
 			}
 		}
-	};
+	}
 
-	const saveLayout = () => {
-		const grid = gridRef.current;
+	saveLayout() {
+		const grid = this.getGridOrLog("Save");
 		if (!grid) {
-			console.log("Save: グリッドがまだ初期化されていないため無視されました");
 			return;
 		}
 
 		const layout = grid.save();
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
-		console.log("Save: レイアウトを保存しました");
-		setStatus("saved");
-	};
-
-	const loadLayout = () => {
-		const grid = gridRef.current;
-		if (!grid) {
-			console.log("Load: グリッドがまだ初期化されていないため無視されました");
+		if (!isGridStackWidgetArray(layout)) {
+			console.log("Save: 保存形式が GridStackWidget[] ではありません");
 			return;
 		}
 
-		if (loadSavedLayout(grid)) {
-			setStatus("loaded");
-		} else {
-			loadDefaultLayout(grid);
-			setStatus("loaded default");
-		}
-	};
+		this.storage.save(layout);
+		this.onStatusChange("saved");
+	}
 
-	const resetLayout = () => {
-		const grid = gridRef.current;
-		if (!grid) {
-			console.log("Reset: グリッドがまだ初期化されていないため無視されました");
+	loadLayout() {
+		if (this.loadSavedLayout()) {
+			this.onStatusChange("loaded");
 			return;
 		}
 
-		localStorage.removeItem(STORAGE_KEY);
-		loadDefaultLayout(grid);
+		this.loadDefaultLayout();
+		this.onStatusChange("loaded default");
+	}
+
+	resetLayout() {
+		const grid = this.getGridOrLog("Reset");
+		if (!grid) {
+			return;
+		}
+
+		this.storage.clear();
+		this.applyLayout(grid, this.defaultLayout);
 		console.log("Reset: レイアウトをリセットしました");
-		setStatus("reset");
-	};
+		this.onStatusChange("reset");
+	}
 
-	const logGridElement = () => {
-		console.log(
-			"Log grid element: gridElementRef.current =",
-			gridElementRef.current,
+	private getGridOrLog(action: string) {
+		if (!this.grid) {
+			console.log(
+				`${action}: グリッドがまだ初期化されていないため無視されました`,
+			);
+			return null;
+		}
+		return this.grid;
+	}
+
+	private loadSavedLayout(): boolean {
+		const grid = this.getGridOrLog("Load");
+		if (!grid) {
+			return false;
+		}
+
+		const layout = this.storage.load();
+		if (!layout) {
+			return false;
+		}
+
+		this.applyLayout(grid, layout);
+		console.log("Load saved: 保存済みレイアウトを読み込み");
+		return true;
+	}
+
+	private loadDefaultLayout() {
+		const grid = this.getGridOrLog("Load default");
+		if (!grid) {
+			return;
+		}
+
+		this.applyLayout(grid, this.defaultLayout);
+		console.log("Load default: デフォルトレイアウトを読み込み");
+	}
+
+	private applyLayout(grid: GridStackType, layout: GridStackWidget[]) {
+		grid.removeAll();
+		grid.load(layout);
+	}
+}
+
+function logGridElement(gridElement: HTMLDivElement | null) {
+	console.log("Log grid element: gridElementRef.current =", gridElement);
+}
+
+export default function DashboardGrid() {
+	const gridElementRef = useRef<HTMLDivElement | null>(null);
+	const [status, setStatus] = useState<string>("not initialized");
+	const controllerRef = useRef<GridController | null>(null);
+
+	if (!controllerRef.current) {
+		controllerRef.current = new GridController(
+			new GridLayoutStorage(STORAGE_KEY),
+			DEFAULT_LAYOUT,
+			setStatus,
 		);
-	};
+	}
+
+	useEffect(() => {
+		let disposed = false;
+		console.log("useEffect: グリッド初期化開始");
+		const controller = controllerRef.current;
+
+		void (async () => {
+			if (!gridElementRef.current) {
+				console.log("useEffect: gridElementRef.current がまだないためスキップ");
+				return;
+			}
+
+			const { GridStack } = await import("gridstack");
+			if (disposed) {
+				console.log("useEffect: クリーンアップ済みのため初期化中止");
+				return;
+			}
+
+			const grid = GridStack.init(GRID_INIT_OPTIONS, gridElementRef.current);
+			console.log("useEffect: グリッド初期化完了");
+			controller?.attach(grid);
+			console.log("useEffect: 準備完了");
+		})();
+
+		return () => {
+			disposed = true;
+			controller?.destroy();
+			console.log("useEffect: クリーンアップ（グリッド破棄）");
+		};
+	}, []);
 
 	return (
-		<div style={{ padding: 16 }}>
-			<div
-				style={{
-					display: "flex",
-					gap: 8,
-					alignItems: "center",
-					marginBottom: 12,
-				}}
-			>
-				<button onClick={addWidget}>Add widget</button>
-				<button onClick={saveLayout}>Save</button>
-				<button onClick={loadLayout}>Load</button>
-				<button onClick={resetLayout}>Reset</button>
-				<button onClick={logGridElement}>Log grid element</button>
-				<span style={{ opacity: 0.7 }}>status: {status}</span>
+		<div style={ROOT_STYLE}>
+			<div style={TOOLBAR_STYLE}>
+				<button
+					type="button"
+					onClick={() => controllerRef.current?.addWidget()}
+				>
+					Add widget
+				</button>
+				<button
+					type="button"
+					onClick={() => controllerRef.current?.saveLayout()}
+				>
+					Save
+				</button>
+				<button
+					type="button"
+					onClick={() => controllerRef.current?.loadLayout()}
+				>
+					Load
+				</button>
+				<button
+					type="button"
+					onClick={() => controllerRef.current?.resetLayout()}
+				>
+					Reset
+				</button>
+				<button
+					type="button"
+					onClick={() => logGridElement(gridElementRef.current)}
+				>
+					Log grid element
+				</button>
+				<span style={STATUS_STYLE}>status: {status}</span>
 			</div>
 
-			{/* GridStack ルート要素（CSS class 必須） [oai_citation:11‡Gridstack.js Official Site](https://gridstackjs.com/doc/html/classes/GridStack.html) */}
+			{/* GridStack ルート要素（CSS class 必須） */}
 			<div className="grid-stack" ref={gridElementRef} />
 		</div>
 	);
